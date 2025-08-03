@@ -7,6 +7,7 @@ import {
   ScanAnalyzeRequest,
   NutritionAnalysisResponse,
   ScanHistory,
+  HealthCondition,
   ApiResponse
 } from '../types';
 
@@ -166,6 +167,25 @@ export class FoodScannerAPI {
     timestamp: number;
   }> {
     const response = await api.get('/api/health-conditions/');
+    return response.data;
+  }
+
+  /**
+   * Create custom health condition
+   */
+  static async createHealthCondition(conditionData: {
+    name: string;
+    description: string;
+    severity?: 'mild' | 'moderate' | 'severe';
+    dietary_restrictions?: Record<string, any>;
+    nutritional_targets?: Record<string, any>;
+    warning_template?: string;
+    recommendation_template?: string;
+  }): Promise<{
+    message: string;
+    condition: HealthCondition;
+  }> {
+    const response = await api.post('/api/health-conditions/', conditionData);
     return response.data;
   }
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { HealthCondition } from '../types';
 import FoodScannerAPI from '../services/api';
+import CustomHealthConditionForm from './CustomHealthConditionForm';
 
 interface HealthConditionSelectorProps {
   selectedConditions: HealthCondition[];
@@ -30,6 +31,7 @@ const HealthConditionSelector: React.FC<HealthConditionSelectorProps> = ({
   const [availableConditions, setAvailableConditions] = useState<HealthCondition[]>(FALLBACK_CONDITIONS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showCustomForm, setShowCustomForm] = useState(false);
 
   useEffect(() => {
     const fetchHealthConditions = async () => {
@@ -68,6 +70,24 @@ const HealthConditionSelector: React.FC<HealthConditionSelectorProps> = ({
       };
       handleAddCondition(condition);
       setCustomCondition('');
+    }
+  };
+
+  const handleCustomConditionCreated = async (condition: HealthCondition) => {
+    // Add the new condition to available conditions
+    setAvailableConditions(prev => [...prev, condition]);
+    // Auto-select the new condition
+    handleAddCondition(condition);
+    // Close the form
+    setShowCustomForm(false);
+    // Refresh the conditions list from API
+    try {
+      const response = await FoodScannerAPI.getHealthConditions();
+      if (response.health_conditions && response.health_conditions.length > 0) {
+        setAvailableConditions(response.health_conditions);
+      }
+    } catch (err) {
+      console.error('Failed to refresh health conditions:', err);
     }
   };
 
@@ -176,13 +196,21 @@ const HealthConditionSelector: React.FC<HealthConditionSelectorProps> = ({
 
             {/* Custom Condition Input */}
             <div>
-              <h4 className="font-medium text-gray-900 mb-3">Add Custom Condition</h4>
+              <div className="flex justify-between items-center mb-3">
+                <h4 className="font-medium text-gray-900">Add Custom Condition</h4>
+                <button
+                  onClick={() => setShowCustomForm(true)}
+                  className="px-3 py-1 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"
+                >
+                  Create Advanced Condition
+                </button>
+              </div>
               <div className="flex space-x-2">
                 <input
                   type="text"
                   value={customCondition}
                   onChange={(e) => setCustomCondition(e.target.value)}
-                  placeholder="Enter custom health condition"
+                  placeholder="Enter simple custom health condition"
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   onKeyPress={(e) => e.key === 'Enter' && handleAddCustomCondition()}
                 />
@@ -194,10 +222,21 @@ const HealthConditionSelector: React.FC<HealthConditionSelectorProps> = ({
                   Add
                 </button>
               </div>
+              <p className="text-xs text-gray-500 mt-2">
+                For simple conditions, use the input above. For detailed conditions with dietary restrictions and nutritional targets, use "Create Advanced Condition".
+              </p>
             </div>
           </div>
         )}
       </div>
+
+      {/* Custom Health Condition Form Modal */}
+      {showCustomForm && (
+        <CustomHealthConditionForm
+          onConditionCreated={handleCustomConditionCreated}
+          onCancel={() => setShowCustomForm(false)}
+        />
+      )}
     </div>
   );
 };

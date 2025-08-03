@@ -350,7 +350,7 @@ def scan_analyze(request):
             schema=openapi.Schema(
                 type=openapi.TYPE_OBJECT,
                 properties={
-                    'health_conditions': openapi.Schema(
+                    'conditions': openapi.Schema(
                         type=openapi.TYPE_ARRAY,
                         items=openapi.Schema(
                             type=openapi.TYPE_OBJECT,
@@ -361,7 +361,8 @@ def scan_analyze(request):
                                 'severity': openapi.Schema(type=openapi.TYPE_STRING),
                             }
                         )
-                    )
+                    ),
+                    'count': openapi.Schema(type=openapi.TYPE_INTEGER),
                 }
             )
         ),
@@ -369,29 +370,123 @@ def scan_analyze(request):
     },
     tags=['Health Conditions']
 )
-@api_view(['GET'])
+@swagger_auto_schema(
+    method='post',
+    operation_summary="Create Custom Health Condition",
+    operation_description="Create a new custom health condition with dietary restrictions and nutritional targets",
+    request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        required=['name', 'description'],
+        properties={
+            'name': openapi.Schema(type=openapi.TYPE_STRING, description='Condition name'),
+            'description': openapi.Schema(type=openapi.TYPE_STRING, description='Condition description'),
+            'severity': openapi.Schema(type=openapi.TYPE_STRING, enum=['mild', 'moderate', 'severe'], default='moderate'),
+            'dietary_restrictions': openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                description='JSON object with dietary restrictions (e.g., {"max_sugar_g": 25})'
+            ),
+            'nutritional_targets': openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                description='JSON object with nutritional targets (e.g., {"min_fiber_g": 8})'
+            ),
+            'warning_template': openapi.Schema(type=openapi.TYPE_STRING, description='Warning message template'),
+            'recommendation_template': openapi.Schema(type=openapi.TYPE_STRING, description='Recommendation template'),
+        }
+    ),
+    responses={
+        201: openapi.Response(
+            description="Health condition created successfully",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'message': openapi.Schema(type=openapi.TYPE_STRING),
+                    'condition': openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            'id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                            'name': openapi.Schema(type=openapi.TYPE_STRING),
+                            'description': openapi.Schema(type=openapi.TYPE_STRING),
+                        }
+                    )
+                }
+            )
+        ),
+        400: ErrorResponseSerializer,
+        500: ErrorResponseSerializer,
+    },
+    tags=['Health Conditions']
+)
+@api_view(['GET', 'POST'])
 def get_health_conditions(request):
     """
     Get all available health conditions for user selection
     """
     try:
-        health_conditions = HealthCondition.objects.filter(is_active=True).order_by('name')
+        if request.method == 'GET':
+            health_conditions = HealthCondition.objects.filter(is_active=True).order_by('name')
+            
+            conditions_data = []
+            for condition in health_conditions:
+                conditions_data.append({
+                    'id': condition.id,
+                    'name': condition.name,
+                    'description': condition.description,
+                    'severity': condition.severity,
+                    'dietary_restrictions': condition.dietary_restrictions,
+                    'nutritional_targets': condition.nutritional_targets
+                })
+            
+            return Response({
+                'conditions': conditions_data,
+                'count': len(conditions_data),
+                'timestamp': time.time()
+            }, status=status.HTTP_200_OK)
         
-        conditions_data = []
-        for condition in health_conditions:
-            conditions_data.append({
-                'id': condition.id,
-                'name': condition.name,
-                'description': condition.description,
-                'severity': condition.severity,
-                'dietary_restrictions': condition.dietary_restrictions
-            })
-        
-        return Response({
-            'health_conditions': conditions_data,
-            'count': len(conditions_data),
-            'timestamp': time.time()
-        }, status=status.HTTP_200_OK)
+        elif request.method == 'POST':
+            # Validate required fields
+            required_fields = ['name', 'description']
+            for field in required_fields:
+                if not request.data.get(field):
+                    return Response({
+                        'error': 'validation_error',
+                        'message': f'Field "{field}" is required',
+                        'timestamp': time.time()
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check if condition already exists
+            if HealthCondition.objects.filter(name__iexact=request.data['name']).exists():
+                return Response({
+                    'error': 'duplicate_condition',
+                    'message': 'A health condition with this name already exists',
+                    'timestamp': time.time()
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Create the health condition
+            condition = HealthCondition.objects.create(
+                name=request.data['name'].strip(),
+                description=request.data['description'].strip(),
+                severity=request.data.get('severity', 'moderate'),
+                dietary_restrictions=request.data.get('dietary_restrictions', {}),
+                nutritional_targets=request.data.get('nutritional_targets', {}),
+                warning_template=request.data.get('warning_template', ''),
+                recommendation_template=request.data.get('recommendation_template', ''),
+                is_active=True
+            )
+            
+            logger.info(f"Created custom health condition: {condition.name}")
+            
+            return Response({
+                'message': 'Health condition created successfully',
+                'condition': {
+                    'id': condition.id,
+                    'name': condition.name,
+                    'description': condition.description,
+                    'severity': condition.severity,
+                    'dietary_restrictions': condition.dietary_restrictions,
+                    'nutritional_targets': condition.nutritional_targets
+                },
+                'timestamp': time.time()
+            }, status=status.HTTP_201_CREATED)
         
     except Exception as e:
         logger.error(f"Failed to fetch health conditions: {str(e)}")
@@ -472,15 +567,34 @@ def get_scan_history(request):
         # Format response data
         results = []
         for scan in paginated_scans:
+            # Get food name from food relationship or scan result
+            food_name = 'Unknown Food'
+            if scan.food:
+                food_name = scan.food.name
+            elif scan.scan_result and scan.scan_result.get('food_name'):
+                food_name = scan.scan_result['food_name']
+            
+            # Get health score from scan result if available
+            health_score = None
+            if scan.scan_result and scan.scan_result.get('overall_health_score'):
+                health_score = scan.scan_result['overall_health_score']
+            
             results.append({
                 'id': scan.id,
-                'food_name': scan.food_name,
+                'food_name': food_name,
                 'scan_type': scan.scan_type,
                 'created_at': scan.created_at.isoformat(),
-                'health_score': scan.health_score,
+                'health_score': health_score,
                 'status': scan.status,
                 'processing_time_ms': scan.processing_time_ms,
-                'health_conditions': scan.health_conditions
+                'confidence_score': scan.confidence_score,
+                'health_conditions': scan.health_conditions,
+                'scan_result': scan.scan_result,
+                'error_message': scan.error_message,
+                'food': {
+                    'id': scan.food.id if scan.food else None,
+                    'name': scan.food.name if scan.food else None,
+                } if scan.food else None
             })
         
         # Calculate pagination info

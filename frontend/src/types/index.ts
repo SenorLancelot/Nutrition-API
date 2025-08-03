@@ -140,23 +140,50 @@ export interface ScanAnalyzeRequest {
   serving_size?: string;
 }
 
-// Scan History
+// Scan History - Backend API Response
 export interface ScanHistory {
-  id: string;
-  user_id?: string;
-  scan_type: 'image' | 'barcode' | 'text';
-  food_name?: string;
-  barcode_id?: string;
-  status: 'pending' | 'success' | 'error';
-  result?: NutritionAnalysisResponse;
-  error_message?: string;
-  timestamp: string;
+  id: number;
+  food?: Food;
+  scan_type: 'image' | 'barcode' | 'text' | 'nutrition_label';
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  input_data: string;
+  input_metadata: Record<string, any>;
+  health_conditions: string[];
+  scan_result: Record<string, any>;
+  confidence_score?: number;
   processing_time_ms?: number;
-  metadata?: Record<string, any>;
+  error_message?: string;
+  created_at: string;
+  updated_at: string;
 }
 
-// Alias for ScanHistory to match component usage
-export type ScanHistoryItem = ScanHistory;
+// Frontend ScanHistoryItem for component usage
+export interface ScanHistoryItem {
+  id: string;
+  food_name: string;
+  scan_type: 'image' | 'barcode' | 'text' | 'nutrition_label';
+  status: 'success' | 'error' | 'pending';
+  timestamp: string;
+  processing_time_ms?: number;
+  confidence?: number;
+  result?: {
+    food_name: string;
+    confidence: number;
+    macros: {
+      calories: number;
+      protein_g: number;
+      carbohydrates_g: number;
+      fat_g: number;
+      fiber_g?: number;
+    };
+    health_analysis?: {
+      overall_score?: number;
+      remarks?: HealthRemark[];
+    };
+    source: string;
+  };
+  error_message?: string;
+}
 
 // Component Props Types
 export interface FoodScannerProps {

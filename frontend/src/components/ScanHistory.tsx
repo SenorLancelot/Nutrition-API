@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ScanHistoryItem } from '../types';
+import { FoodScannerAPI } from '../services/api';
 
 const ScanHistory: React.FC = () => {
   const [history, setHistory] = useState<ScanHistoryItem[]>([]);
@@ -7,18 +8,52 @@ const ScanHistory: React.FC = () => {
   const [filter, setFilter] = useState<'all' | 'success' | 'error'>('all');
 
   useEffect(() => {
-    // Load scan history from localStorage
-    const loadHistory = () => {
+    // Load scan history from API
+    const loadHistory = async () => {
       try {
-        const savedHistory = localStorage.getItem('food_scan_history');
-        if (savedHistory) {
-          const parsedHistory = JSON.parse(savedHistory);
-          setHistory(parsedHistory.sort((a: ScanHistoryItem, b: ScanHistoryItem) => 
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-          ));
-        }
+        setLoading(true);
+        const response = await FoodScannerAPI.getScanHistory(1, 50); // Get recent 50 scans
+        
+        // Transform API response to match ScanHistoryItem interface
+        const transformedHistory: ScanHistoryItem[] = response.results.map(scan => ({
+          id: scan.id.toString(),
+          food_name: scan.food?.name || 'Unknown Food',
+          scan_type: scan.scan_type,
+          status: scan.status === 'completed' ? 'success' : scan.status === 'failed' ? 'error' : 'pending',
+          timestamp: scan.created_at,
+          processing_time_ms: scan.processing_time_ms,
+          confidence: scan.confidence_score,
+          result: scan.scan_result ? {
+            food_name: scan.scan_result.food_name || scan.food?.name || 'Unknown',
+            confidence: scan.confidence_score || 0,
+            macros: {
+              calories: scan.scan_result.macros?.calories || 0,
+              protein_g: scan.scan_result.macros?.protein_g || 0,
+              carbohydrates_g: scan.scan_result.macros?.carbohydrates_g || 0,
+              fat_g: scan.scan_result.macros?.fat_g || 0,
+              fiber_g: scan.scan_result.macros?.fiber_g || 0
+            },
+            health_analysis: scan.scan_result.health_analysis,
+            source: scan.scan_result.source || 'API'
+          } : undefined,
+          error_message: scan.error_message
+        }));
+        
+        setHistory(transformedHistory);
       } catch (error) {
-        console.error('Error loading scan history:', error);
+        console.error('Error loading scan history from API:', error);
+        // Fallback to localStorage if API fails
+        try {
+          const savedHistory = localStorage.getItem('food_scan_history');
+          if (savedHistory) {
+            const parsedHistory = JSON.parse(savedHistory);
+            setHistory(parsedHistory.sort((a: ScanHistoryItem, b: ScanHistoryItem) => 
+              new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            ));
+          }
+        } catch (localError) {
+          console.error('Error loading from localStorage:', localError);
+        }
       } finally {
         setLoading(false);
       }
@@ -27,17 +62,38 @@ const ScanHistory: React.FC = () => {
     loadHistory();
   }, []);
 
-  const clearHistory = () => {
+  const clearHistory = async () => {
     if (window.confirm('Are you sure you want to clear all scan history?')) {
-      localStorage.removeItem('food_scan_history');
-      setHistory([]);
+      try {
+        // Note: This would require a DELETE endpoint on the backend
+        // For now, we'll just clear the local state and localStorage
+        localStorage.removeItem('food_scan_history');
+        setHistory([]);
+        
+        // TODO: Implement backend DELETE /api/scan-history/ endpoint
+        console.log('History cleared locally. Backend bulk delete not yet implemented.');
+      } catch (error) {
+        console.error('Error clearing history:', error);
+      }
     }
   };
 
-  const deleteItem = (id: string) => {
-    const updatedHistory = history.filter(item => item.id !== id);
-    setHistory(updatedHistory);
-    localStorage.setItem('food_scan_history', JSON.stringify(updatedHistory));
+  const deleteItem = async (id: string) => {
+    try {
+      // TODO: Implement backend DELETE /api/scan-history/{id}/ endpoint
+      // await FoodScannerAPI.deleteScanHistory(id);
+      
+      // For now, remove from local state
+      const updatedHistory = history.filter(item => item.id !== id);
+      setHistory(updatedHistory);
+      
+      // Also remove from localStorage backup
+      localStorage.setItem('food_scan_history', JSON.stringify(updatedHistory));
+      
+      console.log(`Scan ${id} deleted locally. Backend delete not yet implemented.`);
+    } catch (error) {
+      console.error('Error deleting scan history item:', error);
+    }
   };
 
   const filteredHistory = history.filter(item => {
